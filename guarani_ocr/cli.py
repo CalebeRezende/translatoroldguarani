@@ -6,7 +6,7 @@
   python -m guarani_ocr.cli import-gt samples/
   python -m guarani_ocr.cli export-gt [--exclude prologo_p1 indice_c_p1]
   python -m guarani_ocr.cli export-txt saida/
-  python -m guarani_ocr.cli eval [--lang grn_old] [--only prologo_p1 indice_c_p1]
+  python -m guarani_ocr.cli eval [--engine google] [--lang grn_old] [--only prologo_p1 indice_c_p1]
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def main(argv=None):
 
     o = sub.add_parser("ocr", help="faz OCR de uma imagem ou pasta")
     o.add_argument("path", type=Path)
-    o.add_argument("--engine", default="tesseract", choices=["tesseract", "claude"])
+    o.add_argument("--engine", default="tesseract", choices=["tesseract", "claude", "google"])
     o.add_argument("--book")
     o.add_argument("--split", choices=["auto", "yes", "no"], default="auto",
                    help="dividir página dupla")
@@ -44,6 +44,8 @@ def main(argv=None):
                    help="páginas reservadas para teste, ex.: prologo_p1")
     e = sub.add_parser("eval", help="mede a taxa de erro (CER) nas páginas corrigidas")
     e.add_argument("--lang", help="modelo do Tesseract (padrão: OCR_TESS_LANG ou spa_old)")
+    e.add_argument("--engine", default="tesseract",
+                   choices=["tesseract", "claude", "google"])
     e.add_argument("--only", nargs="*", help="avaliar só estas páginas, ex.: prologo_p1")
     t = sub.add_parser("export-txt", help="exporta todos os textos para uma pasta")
     t.add_argument("out", type=Path)
@@ -85,7 +87,7 @@ def main(argv=None):
             print("  pulada:", msg)
     elif a.cmd == "eval":
         from .evaluate import evaluate
-        r = evaluate(db, a.lang, set(a.only) if a.only else None)
+        r = evaluate(db, a.lang, set(a.only) if a.only else None, a.engine)
         for name, cer in r["pages"]:
             print(f"  {name}: CER {cer:.1%}")
         print(f"CER médio ({r['lang']}): {r['cer']:.1%} em {len(r['pages'])} páginas")

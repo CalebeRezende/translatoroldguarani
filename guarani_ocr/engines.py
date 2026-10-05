@@ -116,9 +116,52 @@ class ClaudeEngine:
         return OcrResult(text=text.strip(), engine=f"claude:{response.model}")
 
 
+class GoogleVisionEngine:
+    """OCR do Google Cloud Vision (DOCUMENT_TEXT_DETECTION) via chave de API.
+
+    Requer GOOGLE_VISION_API_KEY. Não é treinável: serve para comparar e para
+    gerar rascunhos. As caixas de linha para treino vêm do Tesseract.
+    """
+
+    name = "google"
+    URL = "https://vision.googleapis.com/v1/images:annotate"
+
+    def __init__(self, api_key: str | None = None, hints: list[str] | None = None):
+        self.api_key = api_key or os.environ["GOOGLE_VISION_API_KEY"]
+        hints = hints or os.getenv("OCR_GOOGLE_HINTS", "es,la").split(",")
+        self.hints = [h.strip() for h in hints if h.strip()]
+
+    def recognize(self, img: np.ndarray) -> OcrResult:
+        import requests
+
+        body = {"requests": [{
+            "image": {"content": base64.b64encode(to_png_bytes(img)).decode()},
+            "features": [{"type": "DOCUMENT_TEXT_DETECTION"}],
+            "imageContext": {"languageHints": self.hints},
+        }]}
+        r = requests.post(self.URL, params={"key": self.api_key}, json=body, timeout=120)
+        if r.status_code != 200:
+            try:
+                msg = r.json()["error"]["message"]
+            except (ValueError, KeyError):
+                msg = r.text[:300]
+            raise RuntimeError(f"Google Vision {r.status_code}: {msg}")
+        resp = r.json()["responses"][0]
+        if "error" in resp:
+            raise RuntimeError(f"Google Vision: {resp['error'].get('message')}")
+        ann = resp.get("fullTextAnnotation", {})
+        confs = [b.get("confidence") for pg in ann.get("pages", [])
+                 for b in pg.get("blocks", []) if b.get("confidence") is not None]
+        conf = 100 * sum(confs) / len(confs) if confs else None
+        return OcrResult(text=ann.get("text", "").strip(), engine="google-vision",
+                         confidence=conf)
+
+
 def get_engine(name: str, **kwargs):
     if name == "tesseract":
         return TesseractEngine(**kwargs)
     if name == "claude":
         return ClaudeEngine(**kwargs)
+    if name == "google":
+        return GoogleVisionEngine(**kwargs)
     raise ValueError(f"Motor desconhecido: {name}")

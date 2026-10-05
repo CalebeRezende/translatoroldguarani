@@ -87,6 +87,22 @@ python -m guarani_ocr.cli export-txt textos/
 O banco guarda também uma **versão modernizada** (ſ→s, hifenização de fim de
 linha juntada, parágrafos corridos), útil para leitura e tradução.
 
+## OCR do Google (Cloud Vision)
+
+Terceiro motor, para comparar. Não aprende o guarani (não é treinável), mas é
+útil como rascunho e como referência.
+
+1. No Google Cloud, com a **Cloud Vision API** ativada: *Criar credenciais →
+   Chave de API*. Em "Restringir chave", limite à Cloud Vision API.
+2. A Vision API exige **faturamento ativado** no projeto (as primeiras 1.000
+   páginas/mês são gratuitas; depois é cobrado por página).
+3. ```bash
+   export GOOGLE_VISION_API_KEY=...       # não coloque a chave no código nem no git
+   python -m guarani_ocr.cli eval --engine google --only prologo_p1 indice_c_p1
+   ```
+   Isso mede o Google nas mesmas páginas de teste da tabela de resultados.
+   Na interface (`streamlit run app.py`) o motor "google" aparece sozinho.
+
 ## Salvar no Google Drive
 
 Cada página vai para uma pasta do Drive (PNG + .txt) e vira uma linha numa

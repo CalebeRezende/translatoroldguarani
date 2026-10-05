@@ -29,10 +29,13 @@ db = get_db()
 
 with st.sidebar:
     st.header("Configuração")
-    engines = ["tesseract"] + (["claude"] if os.getenv("ANTHROPIC_API_KEY") else [])
+    engines = (["tesseract"]
+               + (["google"] if os.getenv("GOOGLE_VISION_API_KEY") else [])
+               + (["claude"] if os.getenv("ANTHROPIC_API_KEY") else []))
     engine = st.radio("Motor de OCR", engines,
                       help="Tesseract: local e gratuito (treinável). "
-                           "Claude: mais preciso; exige ANTHROPIC_API_KEY.")
+                           "Google: Cloud Vision; exige GOOGLE_VISION_API_KEY. "
+                           "Claude: exige ANTHROPIC_API_KEY.")
     book = st.text_input("Livro / obra", "Ara poru aguĳey haba")
     split = st.selectbox("Página dupla?", ["auto", "sim", "não"])
     use_drive = st.checkbox("Salvar no Google Drive", value=DriveSync.configured(),

@@ -7,7 +7,7 @@ from __future__ import annotations
 import cv2
 
 from . import postprocess
-from .engines import TesseractEngine
+from .engines import TesseractEngine, get_engine
 from .storage import Database, page_name
 
 
@@ -28,8 +28,8 @@ def _norm(text: str) -> str:
 
 
 def evaluate(db: Database, lang: str | None = None,
-             only: set[str] | None = None) -> dict:
-    eng = TesseractEngine(lang=lang)
+             only: set[str] | None = None, engine: str = "tesseract") -> dict:
+    eng = TesseractEngine(lang=lang) if engine == "tesseract" else get_engine(engine)
     pages, errs, total = [], 0, 0
     for p in db.corrected():
         if only and page_name(p) not in only:
@@ -40,4 +40,4 @@ def evaluate(db: Database, lang: str | None = None,
         d = levenshtein(hyp, ref)
         errs, total = errs + d, total + len(ref)
         pages.append((page_name(p), d / max(len(ref), 1)))
-    return {"lang": eng.lang, "pages": pages, "cer": errs / max(total, 1)}
+    return {"lang": getattr(eng, "lang", engine), "pages": pages, "cer": errs / max(total, 1)}
