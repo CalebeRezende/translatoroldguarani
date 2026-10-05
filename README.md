@@ -39,6 +39,13 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+Modelo já treinado para guarani (ver "Resultados" abaixo):
+
+```bash
+sudo cp models/grn_old.traineddata /usr/share/tesseract-ocr/5/tessdata/
+export OCR_TESS_LANG=grn_old
+```
+
 Opcional — Claude: `export ANTHROPIC_API_KEY=...` (o motor aparece na interface).
 
 ## Uso
@@ -66,8 +73,14 @@ python -m guarani_ocr.cli export-txt textos/
 
 ### Convenções de transcrição
 
-- Diplomática: mantenha ſ, &, acentos graves (à, è, vì), abreviaturas.
-- Guarani: preserve ã ẽ ĩ õ ũ ỹ, g̃ etc., sem modernizar.
+- Diplomática: mantenha ſ, &, acentos graves (à, è, vì), abreviaturas, § .
+- Guarani — use sempre o mesmo caractere para a mesma marca impressa
+  (o modelo aprende exatamente o que você digitar):
+  - marca nasal (o "chapéu" sobre a vogal) → circunflexo: `â ê î ô û ŷ`
+    (ex.: `Tûpâ`, `mîrî`, `haguâ`);
+  - marca da vogal gutural (a "meia-lua") → breve: `ĭ`, `y̆` (y + U+0306)
+    (ex.: `ĭpĭ`, `mbohapĭ`, `aguĭyey`, `tĭbey̆`);
+  - `ç`, `ñ` e acentos agudo/grave como impressos.
 - Itálico entre `_sublinhados_`.
 - Ilegível: `[ilegível]`; leitura duvidosa: `palavra[?]` (essas linhas ficam fora do treino).
 
@@ -97,26 +110,39 @@ cópia sincronizada a cada OCR e a cada correção.
 
 ## Treinar o modelo
 
-```bash
-python -m guarani_ocr.cli export-gt     # recorta cada linha corrigida → training/ground-truth/
-bash training/train.sh 3000             # ajuste fino do spa_old → grn_old
-export OCR_TESS_LANG=grn_old            # passa a usar o modelo treinado
-```
-
-Medir a qualidade (CER = % de caracteres errados):
+Não existe modelo de OCR pronto para guarani (o Tesseract não tem `grn`), então
+o modelo `grn_old` é treinado a partir do espanhol antigo com as suas correções.
 
 ```bash
-python -m guarani_ocr.cli eval --lang spa_old
-python -m guarani_ocr.cli eval --lang grn_old
+python -m guarani_ocr.cli ocr samples/                  # OCR das páginas de exemplo
+python -m guarani_ocr.cli import-gt samples/            # carrega as transcrições corrigidas (*_pN.gt.txt)
+python -m guarani_ocr.cli export-gt --exclude prologo_p1 indice_c_p1   # separa 2 páginas para teste
+bash training/train.sh 6000                             # ajuste fino spa_old → grn_old (~10 min)
+python -m guarani_ocr.cli eval --lang spa_old --only prologo_p1 indice_c_p1
+python -m guarani_ocr.cli eval --lang grn_old --only prologo_p1 indice_c_p1
+export OCR_TESS_LANG=grn_old                            # passa a usar o modelo treinado
 ```
 
-Para uma comparação honesta, avalie em páginas corrigidas que **não** entraram
-no treino (por exemplo, corrija mais algumas páginas depois de treinar).
+`--exclude`/`--only` garantem que a avaliação use páginas que o modelo nunca viu.
+
+### Resultados até agora
+
+Treino com 8 páginas corrigidas (6 em guarani + 2 em espanhol, 164 linhas),
+teste em 2 páginas em guarani fora do treino (CER = % de caracteres errados):
+
+| Modelo | prologo_p1 (texto corrido) | indice_c_p1 (índice) | média |
+|---|---|---|---|
+| `spa_old` (sem treino) | 17,6% | 12,5% | 15,3% |
+| `Latin+spa_old` (sem treino) | 14,9% | 10,2% | 12,7% |
+| `grn_old` (treinado, 6000 iterações) | 12,5% | 4,9% | 9,0% |
+
+O que ainda erra: diacríticos combinados (`ângà`, `ĭù`), o `y̆` (raro nos
+dados) e linhas com tinta borrada. Isso melhora com mais páginas corrigidas.
 
 Dicas:
-- Comece com ~30 páginas corrigidas (~700 linhas); mais páginas = modelo melhor.
+- Meta: ~30–50 páginas corrigidas; retreine a cada lote novo.
 - Retreine sempre do `spa_old` com todo o ground truth acumulado.
-- Se a validação piorar com mais iterações, use menos (ex.: 1500).
+- Mantenha 2–3 páginas fixas fora do treino para comparar os modelos.
 
 ## Estrutura
 
@@ -131,5 +157,6 @@ guarani_ocr/training.py    exportação de ground truth por linha
 guarani_ocr/evaluate.py    CER
 guarani_ocr/cli.py         linha de comando
 training/train.sh          ajuste fino com tesstrain
-samples/                   página de exemplo + transcrição corrigida
+models/grn_old.traineddata modelo treinado com as páginas de samples/
+samples/                   páginas de exemplo + transcrições corrigidas (*.gt.txt)
 ```

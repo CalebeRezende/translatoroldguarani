@@ -40,6 +40,11 @@ SHEET_HEADER = ["id", "livro", "arquivo", "página", "motor", "confiança",
                 "texto_drive", "atualizado_em"]
 
 
+def page_name(row) -> str:
+    """Nome curto da página, ex.: "prologo_p1" (arquivo prologo.jpg, 2ª página)."""
+    return f"{Path(row['source_name']).stem}_p{row['page_index']}"
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 

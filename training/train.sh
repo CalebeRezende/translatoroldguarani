@@ -2,7 +2,7 @@
 # Ajuste fino do Tesseract (modelo spa_old) com as suas páginas corrigidas.
 #
 #   python -m guarani_ocr.cli export-gt      # gera training/ground-truth/
-#   bash training/train.sh [ITERAÇÕES]       # padrão: 3000
+#   bash training/train.sh [ITERAÇÕES]       # padrão: 6000
 #
 # Resultado: training/output/grn_old.traineddata, já copiado para o tessdata.
 # Depois use:  OCR_TESS_LANG=grn_old streamlit run app.py
@@ -10,7 +10,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 MODEL=${MODEL_NAME:-grn_old}
-ITER=${1:-3000}
+ITER=${1:-6000}
 TESSDATA=${TESSDATA_PREFIX:-$(dirname "$(find /usr/share /usr/local/share /opt/homebrew/share -name spa.traineddata 2>/dev/null | head -1)")}
 
 [ -d tesstrain ] || git clone --depth 1 https://github.com/tesseract-ocr/tesstrain

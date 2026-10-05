@@ -16,7 +16,7 @@ from pathlib import Path
 import cv2
 
 from .engines import TesseractEngine
-from .storage import Database
+from .storage import Database, page_name
 
 SKIP = re.compile(r"\[(ilegível|\?)\]")
 
@@ -51,12 +51,15 @@ def align(boxes: list[dict], gt: list[str], min_ratio: float = 0.5,
 
 
 def export_ground_truth(db: Database, out_dir: Path | str = "training/ground-truth",
-                        pad: int = 6) -> dict:
+                        pad: int = 6, exclude: set[str] = frozenset()) -> dict:
+    """`exclude`: nomes de páginas (ex.: "prologo_p1") reservadas para teste."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     seg = TesseractEngine()
     stats = {"pages": 0, "lines": 0, "skipped_pages": []}
     for p in db.corrected():
+        if page_name(p) in exclude:
+            continue
         img = cv2.imread(p["image_path"], cv2.IMREAD_GRAYSCALE)
         if img is None:
             continue
@@ -71,7 +74,7 @@ def export_ground_truth(db: Database, out_dir: Path | str = "training/ground-tru
                 "linhas alinhadas")
             continue
         stats["pages"] += 1
-        stem = f"{Path(p['source_name']).stem}_p{p['page_index']}"
+        stem = page_name(p)
         h, w = img.shape
         for n, (ln, text) in enumerate(pairs):
             if SKIP.search(text):

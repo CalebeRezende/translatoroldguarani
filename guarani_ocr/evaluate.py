@@ -4,13 +4,11 @@ Para uma medida honesta, avalie em páginas que NÃO foram usadas no treino.
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 import cv2
 
 from . import postprocess
 from .engines import TesseractEngine
-from .storage import Database
+from .storage import Database, page_name
 
 
 def levenshtein(a: str, b: str) -> int:
@@ -24,18 +22,22 @@ def levenshtein(a: str, b: str) -> int:
 
 
 def _norm(text: str) -> str:
-    # compara só o conteúdo: ignora itálico e diferenças de espaço/quebra de linha
-    return " ".join(text.replace("_", "").split())
+    # compara só o conteúdo: ignora itálico, marcas de dúvida e espaço/quebra de linha
+    text = text.replace("_", "").replace("[?]", "").replace("[ilegível]", "")
+    return " ".join(text.split())
 
 
-def evaluate(db: Database, lang: str | None = None) -> dict:
+def evaluate(db: Database, lang: str | None = None,
+             only: set[str] | None = None) -> dict:
     eng = TesseractEngine(lang=lang)
     pages, errs, total = [], 0, 0
     for p in db.corrected():
+        if only and page_name(p) not in only:
+            continue
         img = cv2.imread(p["image_path"], cv2.IMREAD_GRAYSCALE)
         hyp = _norm(postprocess.clean(eng.recognize(img).text))
         ref = _norm(p["corrected_text"])
         d = levenshtein(hyp, ref)
         errs, total = errs + d, total + len(ref)
-        pages.append((f"{Path(p['source_name']).stem} p{p['page_index']}", d / max(len(ref), 1)))
+        pages.append((page_name(p), d / max(len(ref), 1)))
     return {"lang": eng.lang, "pages": pages, "cer": errs / max(total, 1)}
