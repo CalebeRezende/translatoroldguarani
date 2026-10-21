@@ -168,7 +168,8 @@ com as chaves guardadas no servidor.
    arquivo `app.py`.
 4. Em *Advanced settings → Secrets*, cole o conteúdo de
    [`.streamlit/secrets.toml.example`](.streamlit/secrets.toml.example)
-   preenchido com as suas chaves e os campos do JSON da conta de serviço.
+   preenchido com as suas chaves e, em `GOOGLE_SERVICE_ACCOUNT_JSON`, o JSON
+   da conta de serviço inteiro.
    **Defina `APP_PASSWORD`**: sem ela, qualquer pessoa com o link gasta a sua
    chave do Qwen. (Também dá para deixar o app privado em *Settings → Sharing*.)
 5. *Deploy*. O link fica no formato `https://<nome>.streamlit.app`.
