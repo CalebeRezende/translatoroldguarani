@@ -3,6 +3,8 @@ __pycache__/
 .venv/
 data/
 credentials.json
+.streamlit/secrets.toml
+*service-account*.json
 .env
 training/tesstrain/
 training/ground-truth/

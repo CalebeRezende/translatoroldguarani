@@ -112,6 +112,9 @@ class DriveSync:
 
     Configuração (variáveis de ambiente):
       GOOGLE_CLIENT_SECRET  caminho do credentials.json (OAuth "App para computador")
+      GOOGLE_SERVICE_ACCOUNT_JSON  conteúdo JSON de uma conta de serviço (servidor,
+                            ex.: Streamlit Cloud); compartilhe a planilha com o
+                            e-mail dela. Sem isso, usa o OAuth acima.
       DRIVE_FOLDER_ID       id da pasta no Drive onde salvar imagens e textos (opcional)
       SHEET_ID              id da Planilha Google usada como banco de dados
     Basta um dos dois: só SHEET_ID grava apenas a planilha.
@@ -126,11 +129,17 @@ class DriveSync:
         from google_auth_oauthlib.flow import InstalledAppFlow
         from googleapiclient.discovery import build
 
+        service_account = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
         token = DATA_DIR / "google_token.json"
         creds = None
-        if token.exists():
+        if service_account:
+            from google.oauth2 import service_account as sa
+
+            creds = sa.Credentials.from_service_account_info(
+                json.loads(service_account), scopes=self.SCOPES)
+        elif token.exists():
             creds = Credentials.from_authorized_user_file(str(token), self.SCOPES)
-        if not creds or not creds.valid:
+        if not service_account and (not creds or not creds.valid):
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
             else:

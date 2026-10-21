@@ -150,6 +150,38 @@ O banco local (`data/ocr.db`) continua sendo a fonte principal; a planilha
 recebe a página quando você clica em *Salvar e enviar à planilha* (na linha de
 comando, com `--drive`).
 
+## Publicar online (Streamlit Community Cloud, grátis)
+
+O GitHub Pages não serve: só hospeda páginas estáticas, não roda Python, e a
+chave da API ficaria exposta no navegador. O Streamlit Cloud roda o `app.py`
+com as chaves guardadas no servidor.
+
+1. **Conta de serviço do Google** (o login pelo navegador não funciona num servidor):
+   no [Google Cloud Console](https://console.cloud.google.com/), com a
+   **Google Sheets API** ativada: *IAM e administrador → Contas de serviço →
+   Criar* → aba *Chaves → Adicionar chave → JSON*. Guarde o arquivo baixado
+   fora do repositório.
+2. **Compartilhe a planilha** com o e-mail da conta de serviço
+   (`...@...iam.gserviceaccount.com`) como **Editor**.
+3. Em [share.streamlit.io](https://share.streamlit.io) entre com o GitHub →
+   *Create app* → repositório `translatoroldguarani`, branch `main`,
+   arquivo `app.py`.
+4. Em *Advanced settings → Secrets*, cole o conteúdo de
+   [`.streamlit/secrets.toml.example`](.streamlit/secrets.toml.example)
+   preenchido com as suas chaves e os campos do JSON da conta de serviço.
+   **Defina `APP_PASSWORD`**: sem ela, qualquer pessoa com o link gasta a sua
+   chave do Qwen. (Também dá para deixar o app privado em *Settings → Sharing*.)
+5. *Deploy*. O link fica no formato `https://<nome>.streamlit.app`.
+
+Observações:
+- O disco do Streamlit Cloud é apagado quando o app reinicia: o banco local
+  (`data/ocr.db`) some, e a **planilha é a cópia que fica**. Envie cada página
+  à planilha depois de revisar.
+- Contas de serviço não têm espaço no Drive: deixe `DRIVE_FOLDER_ID` vazio
+  (só a planilha é gravada) ou use uma pasta num Drive compartilhado.
+- O `packages.txt` instala o Tesseract; com `OCR_TESS_LANG = "grn_old"` ele usa
+  o modelo treinado de `models/`, sem instalar nada a mais.
+
 ## Treinar o modelo
 
 Não existe modelo de OCR pronto para guarani (o Tesseract não tem `grn`), então
@@ -190,6 +222,8 @@ Dicas:
 
 ```
 app.py                     interface web (Streamlit)
+packages.txt               pacotes do sistema para o Streamlit Cloud (Tesseract)
+.streamlit/secrets.toml.example  modelo das chaves para o Streamlit Cloud
 guarani_ocr/preprocess.py  divisão de página dupla, endireitamento, binarização
 guarani_ocr/engines.py     Tesseract, Qwen, Claude e Google Vision
 guarani_ocr/translate.py   tradução (Qwen ou Claude)

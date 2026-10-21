@@ -4,6 +4,10 @@
 """
 from __future__ import annotations
 
+import hmac
+import json
+import os
+
 import streamlit as st
 
 from guarani_ocr import postprocess
@@ -14,6 +18,38 @@ from guarani_ocr.training import export_ground_truth
 from guarani_ocr.translate import LANGUAGES, available_translators, translate
 
 st.set_page_config(page_title="OCR Guarani Antigo", layout="wide")
+
+
+def load_secrets() -> None:
+    """No Streamlit Cloud as chaves ficam em "Secrets" (TOML); vira variável de
+    ambiente, como na execução local. A tabela [gcp_service_account] vira JSON."""
+    try:
+        secrets = st.secrets.to_dict()
+    except (FileNotFoundError, st.errors.StreamlitSecretNotFoundError):
+        return
+    for k, v in secrets.items():
+        if k == "gcp_service_account":
+            os.environ.setdefault("GOOGLE_SERVICE_ACCOUNT_JSON", json.dumps(v))
+        elif isinstance(v, (str, int, float)):
+            os.environ.setdefault(k, str(v))
+
+
+def require_password() -> None:
+    """Se APP_PASSWORD estiver definida, pede a senha (protege a sua chave da API)."""
+    expected = os.getenv("APP_PASSWORD")
+    if not expected or st.session_state.get("auth_ok"):
+        return
+    pw = st.text_input("Senha", type="password")
+    if pw and hmac.compare_digest(pw, expected):
+        st.session_state["auth_ok"] = True
+        st.rerun()
+    if pw:
+        st.error("Senha incorreta")
+    st.stop()
+
+
+load_secrets()
+require_password()
 
 
 @st.cache_resource

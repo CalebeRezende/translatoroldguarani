@@ -4,11 +4,14 @@ from __future__ import annotations
 import base64
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 import pytesseract
 
 from .preprocess import to_png_bytes
+
+MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 
 
 @dataclass
@@ -29,6 +32,10 @@ class TesseractEngine:
         self.lang = lang or os.getenv("OCR_TESS_LANG", "spa_old")
         # psm 4 = uma coluna de texto com linhas de tamanhos variados
         self.config = f"--psm {psm} -c preserve_interword_spaces=1"
+        # modelo treinado do repositório (models/grn_old) sem precisar instalar
+        local = MODELS_DIR / f"{self.lang}.traineddata"
+        if local.exists():
+            self.config += f' --tessdata-dir "{MODELS_DIR}"'
 
     def recognize(self, img: np.ndarray) -> OcrResult:
         data = pytesseract.image_to_data(
