@@ -164,7 +164,7 @@ com as chaves guardadas no servidor.
 2. **Compartilhe a planilha** com o e-mail da conta de serviço
    (`...@...iam.gserviceaccount.com`) como **Editor**.
 3. Em [share.streamlit.io](https://share.streamlit.io) entre com o GitHub →
-   *Create app* → repositório `translatoroldguarani`, branch `main`,
+   *Create app* → repositório `translatoroldguarani`, a branch principal do repositório,
    arquivo `app.py`.
 4. Em *Advanced settings → Secrets*, cole o conteúdo de
    [`.streamlit/secrets.toml.example`](.streamlit/secrets.toml.example)
