@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS pages (
     raw_text        TEXT,
     corrected_text  TEXT,
     modern_text     TEXT,
+    translation     TEXT,
     lines_json      TEXT,
     image_path      TEXT,
     drive_image_id  TEXT,
@@ -37,7 +38,10 @@ CREATE TABLE IF NOT EXISTS pages (
 
 SHEET_HEADER = ["id", "livro", "arquivo", "página", "motor", "confiança",
                 "texto_corrigido", "texto_modernizado", "imagem_drive",
-                "texto_drive", "atualizado_em"]
+                "texto_drive", "atualizado_em", "tradução"]
+
+# colunas acrescentadas depois da primeira versão (bancos antigos ganham na abertura)
+MIGRATIONS = {"translation": "TEXT"}
 
 
 def page_name(row) -> str:
@@ -57,6 +61,10 @@ class Database:
         self.conn = sqlite3.connect(self.path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(pages)")}
+        for col, typ in MIGRATIONS.items():
+            if col not in cols:
+                self.conn.execute(f"ALTER TABLE pages ADD COLUMN {col} {typ}")
 
     def image_path_for(self, source_name: str, page_index: int) -> Path:
         stem = Path(source_name).stem
@@ -104,8 +112,12 @@ class DriveSync:
 
     Configuração (variáveis de ambiente):
       GOOGLE_CLIENT_SECRET  caminho do credentials.json (OAuth "App para computador")
-      DRIVE_FOLDER_ID       id da pasta no Drive onde salvar imagens e textos
+      GOOGLE_SERVICE_ACCOUNT_JSON  conteúdo JSON de uma conta de serviço (servidor,
+                            ex.: Streamlit Cloud); compartilhe a planilha com o
+                            e-mail dela. Sem isso, usa o OAuth acima.
+      DRIVE_FOLDER_ID       id da pasta no Drive onde salvar imagens e textos (opcional)
       SHEET_ID              id da Planilha Google usada como banco de dados
+    Basta um dos dois: só SHEET_ID grava apenas a planilha.
     """
 
     SCOPES = ["https://www.googleapis.com/auth/drive.file",
@@ -117,11 +129,17 @@ class DriveSync:
         from google_auth_oauthlib.flow import InstalledAppFlow
         from googleapiclient.discovery import build
 
+        service_account = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
         token = DATA_DIR / "google_token.json"
         creds = None
-        if token.exists():
+        if service_account:
+            from google.oauth2 import service_account as sa
+
+            creds = sa.Credentials.from_service_account_info(
+                json.loads(service_account), scopes=self.SCOPES)
+        elif token.exists():
             creds = Credentials.from_authorized_user_file(str(token), self.SCOPES)
-        if not creds or not creds.valid:
+        if not service_account and (not creds or not creds.valid):
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
             else:
@@ -131,12 +149,13 @@ class DriveSync:
             token.write_text(creds.to_json())
         self.drive = build("drive", "v3", credentials=creds)
         self.sheets = build("sheets", "v4", credentials=creds)
-        self.folder_id = os.environ["DRIVE_FOLDER_ID"]
+        self.folder_id = os.getenv("DRIVE_FOLDER_ID")
         self.sheet_id = os.getenv("SHEET_ID")
+        self._header_checked = False
 
     @staticmethod
     def configured() -> bool:
-        return bool(os.getenv("DRIVE_FOLDER_ID"))
+        return bool(os.getenv("DRIVE_FOLDER_ID") or os.getenv("SHEET_ID"))
 
     def _put_file(self, name: str, data: bytes, mime: str, file_id: str | None) -> str:
         from googleapiclient.http import MediaInMemoryUpload
@@ -158,6 +177,11 @@ class DriveSync:
             api.update(spreadsheetId=self.sheet_id, range="A1",
                        valueInputOption="RAW", body={"values": [SHEET_HEADER]}).execute()
             col = [["id"]]
+        elif not self._header_checked:
+            # planilhas criadas antes da coluna "tradução" ganham o cabeçalho novo
+            api.update(spreadsheetId=self.sheet_id, range="A1",
+                       valueInputOption="RAW", body={"values": [SHEET_HEADER]}).execute()
+        self._header_checked = True
         ids = [r[0] if r else "" for r in col]
         if str(values[0]) in ids:
             row = ids.index(str(values[0])) + 1
@@ -171,17 +195,20 @@ class DriveSync:
     def push(self, db: Database, page_id: int) -> None:
         p = db.get(page_id)
         stem = f"{Path(p['source_name']).stem}_p{p['page_index']}"
-        img_id = self._put_file(f"{stem}.png", Path(p["image_path"]).read_bytes(),
-                                "image/png", p["drive_image_id"])
         text = p["corrected_text"] or p["raw_text"] or ""
-        txt_id = self._put_file(f"{stem}.txt", text.encode("utf-8"),
-                                "text/plain", p["drive_text_id"])
-        db.upsert(source_name=p["source_name"], page_index=p["page_index"],
-                  drive_image_id=img_id, drive_text_id=txt_id)
-        link = "https://drive.google.com/file/d/{}/view"
+        img_link = txt_link = ""
+        if self.folder_id:
+            img_id = self._put_file(f"{stem}.png", Path(p["image_path"]).read_bytes(),
+                                    "image/png", p["drive_image_id"])
+            txt_id = self._put_file(f"{stem}.txt", text.encode("utf-8"),
+                                    "text/plain", p["drive_text_id"])
+            db.upsert(source_name=p["source_name"], page_index=p["page_index"],
+                      drive_image_id=img_id, drive_text_id=txt_id)
+            link = "https://drive.google.com/file/d/{}/view"
+            img_link, txt_link = link.format(img_id), link.format(txt_id)
         self._upsert_sheet_row([
             p["id"], p["book"] or "", p["source_name"], p["page_index"], p["engine"],
             round(p["confidence"], 1) if p["confidence"] is not None else "",
             text[:49000], (p["modern_text"] or "")[:49000],  # limite de célula: 50k
-            link.format(img_id), link.format(txt_id), _now(),
+            img_link, txt_link, _now(), (p["translation"] or "")[:49000],
         ])

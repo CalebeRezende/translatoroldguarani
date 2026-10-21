@@ -2,6 +2,7 @@
 
   python -m guarani_ocr.cli ocr pasta_ou_imagem [--engine claude] [--book "Ara poru"] [--drive]
   python -m guarani_ocr.cli correct ID arquivo.txt [--drive]
+  python -m guarani_ocr.cli translate ID [--to português] [--with qwen] [--drive]
   python -m guarani_ocr.cli list
   python -m guarani_ocr.cli import-gt samples/
   python -m guarani_ocr.cli export-gt [--exclude prologo_p1 indice_c_p1]
@@ -24,7 +25,7 @@ def main(argv=None):
 
     o = sub.add_parser("ocr", help="faz OCR de uma imagem ou pasta")
     o.add_argument("path", type=Path)
-    o.add_argument("--engine", default="tesseract", choices=["tesseract", "claude", "google"])
+    o.add_argument("--engine", default="tesseract", choices=["tesseract", "qwen", "claude", "google"])
     o.add_argument("--book")
     o.add_argument("--split", choices=["auto", "yes", "no"], default="auto",
                    help="dividir página dupla")
@@ -34,6 +35,12 @@ def main(argv=None):
     c.add_argument("id", type=int)
     c.add_argument("file", type=Path)
     c.add_argument("--drive", action="store_true")
+
+    tr = sub.add_parser("translate", help="traduz uma página (salva no banco)")
+    tr.add_argument("id", type=int)
+    tr.add_argument("--to", default="português")
+    tr.add_argument("--with", dest="provider", default="qwen", choices=["qwen", "claude"])
+    tr.add_argument("--drive", action="store_true")
 
     sub.add_parser("list", help="lista as páginas no banco")
     g = sub.add_parser("import-gt", help="importa correções <arquivo>_p<N>.gt.txt de uma pasta")
@@ -45,7 +52,7 @@ def main(argv=None):
     e = sub.add_parser("eval", help="mede a taxa de erro (CER) nas páginas corrigidas")
     e.add_argument("--lang", help="modelo do Tesseract (padrão: OCR_TESS_LANG ou spa_old)")
     e.add_argument("--engine", default="tesseract",
-                   choices=["tesseract", "claude", "google"])
+                   choices=["tesseract", "qwen", "claude", "google"])
     e.add_argument("--only", nargs="*", help="avaliar só estas páginas, ex.: prologo_p1")
     t = sub.add_parser("export-txt", help="exporta todos os textos para uma pasta")
     t.add_argument("out", type=Path)
@@ -66,6 +73,13 @@ def main(argv=None):
     elif a.cmd == "correct":
         save_correction(db, a.id, a.file.read_text(encoding="utf-8"), drive)
         print("ok")
+    elif a.cmd == "translate":
+        from .translate import translate
+        p = db.get(a.id)
+        text = p["corrected_text"] or p["raw_text"] or ""
+        result = translate(p["modern_text"] or text, a.provider, a.to)
+        save_correction(db, a.id, text, drive, result)
+        print(result)
     elif a.cmd == "list":
         for p in db.all():
             mark = "✔" if p["corrected_text"] else " "

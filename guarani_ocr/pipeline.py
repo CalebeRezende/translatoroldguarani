@@ -38,11 +38,14 @@ def process_image(src, source_name: str, db: Database, engine: str = "tesseract"
 
 
 def save_correction(db: Database, page_id: int, text: str,
-                    drive: DriveSync | None = None) -> None:
+                    drive: DriveSync | None = None,
+                    translation: str | None = None) -> None:
     p = db.get(page_id)
     text = postprocess.clean(text)
-    db.upsert(source_name=p["source_name"], page_index=p["page_index"],
-              corrected_text=text, modern_text=postprocess.modernize(text))
+    fields = {"corrected_text": text, "modern_text": postprocess.modernize(text)}
+    if translation is not None:
+        fields["translation"] = translation.strip()
+    db.upsert(source_name=p["source_name"], page_index=p["page_index"], **fields)
     if drive:
         drive.push(db, page_id)
 
