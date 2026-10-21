@@ -1,16 +1,17 @@
-"""Interface web: anexe as imagens, revise o texto e salve.
+"""Interface web: anexe as imagens, revise o texto e a tradução, e salve na planilha.
 
     streamlit run app.py
 """
 from __future__ import annotations
 
-import os
-
 import streamlit as st
 
+from guarani_ocr import postprocess
+from guarani_ocr.engines import available_engines
 from guarani_ocr.pipeline import process_image, save_correction
 from guarani_ocr.storage import Database, DriveSync
 from guarani_ocr.training import export_ground_truth
+from guarani_ocr.translate import LANGUAGES, available_translators, translate
 
 st.set_page_config(page_title="OCR Guarani Antigo", layout="wide")
 
@@ -29,18 +30,21 @@ db = get_db()
 
 with st.sidebar:
     st.header("Configuração")
-    engines = (["tesseract"]
-               + (["google"] if os.getenv("GOOGLE_VISION_API_KEY") else [])
-               + (["claude"] if os.getenv("ANTHROPIC_API_KEY") else []))
-    engine = st.radio("Motor de OCR", engines,
+    engine = st.radio("Motor de OCR", available_engines(),
                       help="Tesseract: local e gratuito (treinável). "
+                           "Qwen: exige DASHSCOPE_API_KEY. "
                            "Google: Cloud Vision; exige GOOGLE_VISION_API_KEY. "
                            "Claude: exige ANTHROPIC_API_KEY.")
+    translators = available_translators()
+    translator = st.radio("Tradutor", translators or ["(nenhum)"],
+                          disabled=not translators,
+                          help="Defina DASHSCOPE_API_KEY (Qwen) ou ANTHROPIC_API_KEY.")
+    target_lang = st.selectbox("Traduzir para", LANGUAGES)
     book = st.text_input("Livro / obra", "Ara poru aguĳey haba")
     split = st.selectbox("Página dupla?", ["auto", "sim", "não"])
-    use_drive = st.checkbox("Salvar no Google Drive", value=DriveSync.configured(),
-                            disabled=not DriveSync.configured(),
-                            help="Defina DRIVE_FOLDER_ID (e SHEET_ID) para ativar.")
+    if not DriveSync.configured():
+        st.info("Planilha Google desativada: defina SHEET_ID (e, se quiser, "
+                "DRIVE_FOLDER_ID). Os textos ficam salvos no banco local.")
     st.divider()
     if st.button("Exportar dados de treino"):
         s = export_ground_truth(db)
@@ -48,7 +52,6 @@ with st.sidebar:
         for msg in s["skipped_pages"]:
             st.warning(msg)
 
-drive = get_drive() if use_drive else None
 
 tab_new, tab_review = st.tabs(["📤 Nova imagem", "📚 Páginas salvas"])
 
@@ -60,9 +63,11 @@ with tab_new:
         split_opt = {"auto": None, "sim": True, "não": False}[split]
         for f in files:
             with st.spinner(f"Processando {f.name}…"):
-                ids = process_image(f.getvalue(), f.name, db, engine, book,
-                                    split_opt, drive)
-            st.success(f"{f.name}: {len(ids)} página(s) salvas — revise na aba ao lado.")
+                # nada vai à planilha ainda: primeiro você revisa na outra aba
+                ids = process_image(f.getvalue(), f.name, db, engine, book, split_opt)
+            st.session_state["last_page"] = ids[0]
+            st.success(f"{f.name}: {len(ids)} página(s) lidas — revise e traduza "
+                       "na aba 📚 antes de enviar à planilha.")
 
 with tab_review:
     pages = db.all()
@@ -74,12 +79,14 @@ with tab_review:
                      f"página {p['page_index'] + 1}"
             for p in pages
         }
-        page_id = st.selectbox("Página", list(labels), format_func=labels.get,
-                               index=len(pages) - 1)
+        ids = list(labels)
+        last = st.session_state.get("last_page")
+        page_id = st.selectbox("Página", ids, format_func=labels.get,
+                               index=ids.index(last) if last in ids else len(ids) - 1)
         p = db.get(page_id)
         left, right = st.columns(2)
         with left:
-            st.image(p["image_path"], use_container_width=True)
+            st.image(p["image_path"], width="stretch")
             info = p["engine"] or ""
             if p["confidence"] is not None:
                 info += f" · confiança média {p['confidence']:.0f}%"
@@ -90,8 +97,30 @@ with tab_review:
                 p["corrected_text"] or p["raw_text"] or "", height=600,
                 key=f"txt{page_id}")
             st.caption("Copiar: ſ  ã ẽ ĩ õ ũ ỹ  g̃  à è ì ò ù  â ê î ô û ŷ  ä ë ï ö ü ÿ  ç ñ  &")
-            if st.button("Salvar correção", type="primary"):
-                save_correction(db, page_id, text, drive)
-                st.success("Salvo!")
-            with st.expander("Versão modernizada (ſ→s, hifenização juntada)"):
-                st.write(db.get(page_id)["modern_text"])
+
+        tr_key = f"tr{page_id}"
+        st.session_state.setdefault(tr_key, p["translation"] or "")
+        st.subheader(f"Tradução ({target_lang})")
+        if st.button("🌐 Traduzir texto acima", disabled=not translators,
+                     help="Usa o texto que está na caixa, já com as suas edições."):
+            with st.spinner("Traduzindo…"):
+                try:
+                    st.session_state[tr_key] = translate(
+                        postprocess.modernize(postprocess.clean(text)),
+                        translator, target_lang)
+                except Exception as e:  # erro da API: mostra e deixa editar à mão
+                    st.error(str(e))
+        translation = st.text_area("Revise a tradução antes de salvar",
+                                   height=300, key=tr_key)
+
+        c1, c2 = st.columns(2)
+        if c1.button("💾 Salvar (só no banco local)"):
+            save_correction(db, page_id, text, translation=translation)
+            st.success("Salvo no banco local.")
+        if c2.button("📤 Salvar e enviar à planilha", type="primary",
+                     disabled=not DriveSync.configured()):
+            with st.spinner("Enviando à Planilha Google…"):
+                save_correction(db, page_id, text, get_drive(), translation)
+            st.success("Salvo e enviado à planilha!")
+        with st.expander("Versão modernizada (ſ→s, hifenização juntada)"):
+            st.write(db.get(page_id)["modern_text"])

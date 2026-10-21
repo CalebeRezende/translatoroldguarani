@@ -1,4 +1,4 @@
-"""Motores de OCR: Tesseract (local, treinável) e Claude (visão, alta precisão)."""
+"""Motores de OCR: Tesseract (local, treinável), Claude e Qwen (visão), Google Vision."""
 from __future__ import annotations
 
 import base64
@@ -157,6 +157,64 @@ class GoogleVisionEngine:
                          confidence=conf)
 
 
+QWEN_BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+
+
+def qwen_api_key() -> str | None:
+    return os.getenv("DASHSCOPE_API_KEY") or os.getenv("QWEN_API_KEY")
+
+
+def qwen_chat(content, model: str, max_tokens: int = 8000) -> str:
+    """Chamada ao Qwen pela API compatível com OpenAI do DashScope (Alibaba Cloud).
+
+    Requer DASHSCOPE_API_KEY (ou QWEN_API_KEY). Na China continental use
+    QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1.
+    """
+    import requests
+
+    key = qwen_api_key()
+    if not key:
+        raise RuntimeError("Defina DASHSCOPE_API_KEY (ou QWEN_API_KEY) para usar o Qwen")
+    url = os.getenv("QWEN_BASE_URL", QWEN_BASE_URL).rstrip("/") + "/chat/completions"
+    r = requests.post(url, headers={"Authorization": f"Bearer {key}"}, timeout=300, json={
+        "model": model, "max_tokens": max_tokens, "temperature": 0,
+        "messages": [{"role": "user", "content": content}],
+    })
+    if r.status_code != 200:
+        try:
+            msg = r.json()["error"]["message"]
+        except (ValueError, KeyError, TypeError):
+            msg = r.text[:300]
+        raise RuntimeError(f"Qwen {r.status_code}: {msg}")
+    return r.json()["choices"][0]["message"]["content"] or ""
+
+
+class QwenEngine:
+    """OCR com Qwen-VL (visão). Requer DASHSCOPE_API_KEY; modelo em OCR_QWEN_MODEL."""
+
+    name = "qwen"
+
+    def __init__(self, model: str | None = None, extra_instructions: str = ""):
+        self.model = model or os.getenv("OCR_QWEN_MODEL", "qwen-vl-max")
+        self.prompt = CLAUDE_PROMPT + ("\n\n" + extra_instructions if extra_instructions else "")
+
+    def recognize(self, img: np.ndarray) -> OcrResult:
+        data = base64.b64encode(to_png_bytes(img)).decode()
+        text = qwen_chat([
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{data}"}},
+            {"type": "text", "text": self.prompt},
+        ], self.model)
+        return OcrResult(text=text.strip(), engine=f"qwen:{self.model}")
+
+
+def available_engines() -> list[str]:
+    """Motores utilizáveis com as chaves definidas no ambiente."""
+    return (["tesseract"]
+            + (["qwen"] if qwen_api_key() else [])
+            + (["google"] if os.getenv("GOOGLE_VISION_API_KEY") else [])
+            + (["claude"] if os.getenv("ANTHROPIC_API_KEY") else []))
+
+
 def get_engine(name: str, **kwargs):
     if name == "tesseract":
         return TesseractEngine(**kwargs)
@@ -164,4 +222,6 @@ def get_engine(name: str, **kwargs):
         return ClaudeEngine(**kwargs)
     if name == "google":
         return GoogleVisionEngine(**kwargs)
+    if name == "qwen":
+        return QwenEngine(**kwargs)
     raise ValueError(f"Motor desconhecido: {name}")

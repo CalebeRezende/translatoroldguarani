@@ -19,6 +19,7 @@ imagem ──► divide página dupla ─► endireita ─► binariza ─► OC
 | Motor | Custo | Qualidade | Quando usar |
 |---|---|---|---|
 | **Tesseract** (`spa_old` → depois `grn_old`) | grátis, local | boa no espanhol; erra diacríticos do guarani até ser treinado | volume grande; depois de treinado |
+| **Qwen** (Qwen-VL, visão) | pago por página ([preços](https://www.alibabacloud.com/help/en/model-studio/models)) | lê tipos antigos sem treino; também traduz | rascunho bom + tradução com a mesma chave |
 | **Claude** (visão) | pago por página ([preços](https://www.anthropic.com/pricing)) | lê bem ſ, ỹ, g̃ e itálico sem treino | gerar transcrições iniciais boas, que viram dados de treino |
 
 Fluxo sugerido: transcreva as primeiras 30–50 páginas com Claude (ou Tesseract),
@@ -48,6 +49,20 @@ export OCR_TESS_LANG=grn_old
 
 Opcional — Claude: `export ANTHROPIC_API_KEY=...` (o motor aparece na interface).
 
+### Qwen (OCR + tradução com uma chave só)
+
+1. Crie a chave no [Alibaba Cloud Model Studio](https://bailian.console.alibabacloud.com/)
+   (*API Key*). Não coloque a chave no código nem no git.
+2. ```bash
+   export DASHSCOPE_API_KEY=sk-...
+   # opcionais:
+   export OCR_QWEN_MODEL=qwen-vl-max          # modelo de visão usado no OCR
+   export TRANSLATE_QWEN_MODEL=qwen-max       # modelo de texto usado na tradução
+   # chave criada na região da China continental:
+   export QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+   ```
+   Com a chave definida, "qwen" aparece como motor de OCR e como tradutor.
+
 ## Uso
 
 ### Interface web (anexar imagem → texto)
@@ -58,9 +73,15 @@ streamlit run app.py
 
 1. Aba **Nova imagem**: anexe uma ou várias imagens e clique em *Extrair texto*.
    Digitalizações de página dupla são divididas automaticamente.
-2. Aba **Páginas salvas**: imagem ao lado do texto; corrija e clique em
-   *Salvar correção*. **Mantenha uma linha de texto por linha impressa** — é
-   isso que permite usar a página para treino.
+   Nada vai para a planilha nesta etapa.
+2. Aba **Páginas salvas**: imagem ao lado do texto que o OCR leu. **Corrija o
+   texto** (mantenha uma linha de texto por linha impressa — é isso que permite
+   usar a página para treino).
+3. Clique em **🌐 Traduzir texto acima**: a tradução (Qwen ou Claude) usa o
+   texto já corrigido e aparece numa caixa editável. **Revise a tradução**.
+4. **📤 Salvar e enviar à planilha** grava no banco local e numa linha da
+   Planilha Google (texto corrigido, modernizado e tradução). *💾 Salvar* grava
+   só no banco local, para continuar depois.
 
 ### Linha de comando (lotes)
 
@@ -68,6 +89,7 @@ streamlit run app.py
 python -m guarani_ocr.cli ocr pasta_com_imagens/ --book "Ara poru" [--engine claude] [--drive]
 python -m guarani_ocr.cli list
 python -m guarani_ocr.cli correct 12 pagina12_corrigida.txt
+python -m guarani_ocr.cli translate 12 --to português --with qwen [--drive]
 python -m guarani_ocr.cli export-txt textos/
 ```
 
@@ -105,8 +127,10 @@ Terceiro motor, para comparar. Não aprende o guarani (não é treinável), mas 
 
 ## Salvar no Google Drive
 
-Cada página vai para uma pasta do Drive (PNG + .txt) e vira uma linha numa
-**Planilha Google**, que funciona como banco de dados consultável.
+Cada página vira uma linha numa **Planilha Google** (colunas: id, livro, arquivo,
+página, motor, confiança, texto corrigido, texto modernizado, links, data e
+tradução). Com `DRIVE_FOLDER_ID`, a imagem e o .txt também vão para uma pasta
+do Drive; só com `SHEET_ID`, grava apenas a planilha.
 
 1. No [Google Cloud Console](https://console.cloud.google.com/): crie um projeto,
    ative **Google Drive API** e **Google Sheets API**.
@@ -116,13 +140,15 @@ Cada página vai para uma pasta do Drive (PNG + .txt) e vira uma linha numa
    `drive.google.com/drive/folders/<DRIVE_FOLDER_ID>` e
    `docs.google.com/spreadsheets/d/<SHEET_ID>/edit`.
 4. ```bash
-   export DRIVE_FOLDER_ID=...  SHEET_ID=...
+   export SHEET_ID=...            # obrigatório para a planilha
+   export DRIVE_FOLDER_ID=...     # opcional: pasta para imagens e .txt
    ```
    Na primeira vez o navegador abre para você autorizar; o token fica em
    `data/google_token.json`.
 
-O banco local (`data/ocr.db`) continua sendo a fonte principal; o Drive é uma
-cópia sincronizada a cada OCR e a cada correção.
+O banco local (`data/ocr.db`) continua sendo a fonte principal; a planilha
+recebe a página quando você clica em *Salvar e enviar à planilha* (na linha de
+comando, com `--drive`).
 
 ## Treinar o modelo
 
@@ -165,7 +191,8 @@ Dicas:
 ```
 app.py                     interface web (Streamlit)
 guarani_ocr/preprocess.py  divisão de página dupla, endireitamento, binarização
-guarani_ocr/engines.py     Tesseract e Claude
+guarani_ocr/engines.py     Tesseract, Qwen, Claude e Google Vision
+guarani_ocr/translate.py   tradução (Qwen ou Claude)
 guarani_ocr/postprocess.py limpeza e versão modernizada
 guarani_ocr/storage.py     SQLite + Google Drive/Sheets
 guarani_ocr/pipeline.py    fluxo imagem → banco
